@@ -1,5 +1,5 @@
 from flask import Flask, render_template, redirect, request, session, make_response, jsonify
-from constants import *
+from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE
 import spotipy
 import time
 from flask_cors import CORS, cross_origin
@@ -7,7 +7,7 @@ from flask_cors import CORS, cross_origin
 app = Flask(__name__)
 app.secret_key = SSK
 
-whitelist = ['http://localhost:3000']
+whitelist = [SPOTIFY_REDIRECT_URL]
 
 @app.after_request
 def add_cors_headers(response):
