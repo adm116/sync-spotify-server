@@ -12,7 +12,7 @@ whitelist = [SPOTIFY_REDIRECT_URL]
 @app.after_request
 def add_cors_headers(response):
     r = request.referrer[:-1]
-    print(r)
+
     if r in whitelist:
         response.headers.add('Access-Control-Allow-Origin', r)
         response.headers.add('Access-Control-Allow-Credentials', 'true')
@@ -51,8 +51,16 @@ def login():
     session['token_info'] = token_info
     session.modified = True
 
+    # TODO: return something more useful here
     return jsonify('')
 
+@app.route("/logout", methods=['POST'])
+def logout():
+    session.clear()
+    session.modified = True
+
+    # TODO: return something more useful here
+    return jsonify('')
 
 # don't need this
 @app.route("/refreshToken")
@@ -67,8 +75,6 @@ def refreshToken():
     return jsonify(json)
 
 # Checks to see if token is valid and gets a new token if not
-
-
 def get_token(session):
     token_valid = False
     token_info = session.get("token_info", {})
