@@ -2,22 +2,24 @@ from flask import Flask, render_template, redirect, request, session, make_respo
 from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE
 import spotipy
 import time
-from flask_cors import CORS, cross_origin
 
 app = Flask(__name__)
 app.secret_key = SSK
 
+def addHeaders(response):
+    response.headers.add("Access-Control-Allow-Origin", SPOTIFY_REDIRECT_URL)
+    response.headers.add("Access-Control-Allow-Headers", "Content-Type")
+    response.headers.add("Access-Control-Allow-Methods", "*")
+    response.headers.add("Access-Control-Allow-Credentials", "true")
+    return response
+
 def createResponse(json):
     response = jsonify(json)
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    return response
+    return addHeaders(response)
 
 def preflightResponse():
     response = make_response()
-    response.headers.add("Access-Control-Allow-Origin", "*")
-    response.headers.add("Access-Control-Allow-Headers", "*")
-    response.headers.add("Access-Control-Allow-Methods", "*")
-    return response
+    return addHeaders(response)
 
 @app.route("/authUrl")
 def authUrl():
@@ -36,7 +38,7 @@ def authUrl():
 def login():
     if request.method == "OPTIONS":
         return preflightResponse()
-
+        
     # Don't reuse a SpotifyOAuth object because they store token info and you could leak user tokens if you reuse a SpotifyOAuth object
     sp_oauth = spotipy.oauth2.SpotifyOAuth(
         client_id=SPOTIFY_CLIENT_ID, client_secret=SPOTIFY_CLIENT_SECRET, redirect_uri=SPOTIFY_REDIRECT_URL, scope=SCOPE)
@@ -57,18 +59,23 @@ def login():
     # TODO: check for errors
     return createResponse(currentUser)
 
-@app.route("/logout", methods=['POST'])
+@app.route("/logout", methods=['POST', 'OPTIONS'])
 def logout():
+    if request.method == "OPTIONS":
+        return preflightResponse()
+
     session.clear()
     session.modified = True
 
     # TODO: return something more useful here
     return createResponse('')
 
-# don't need this
-@app.route("/refreshToken")
-def refreshToken():
-    session['token_info'], authorized = get_token(session)
+@app.route("/getToken", methods=['GET', 'OPTIONS'])
+def getToken():
+    if request.method == "OPTIONS":
+        return preflightResponse()
+
+    session['token_info'], authorized = getValidToken(session)
     session.modified = True
     if not authorized:
         json = { 'success': False, 'token': '', 'expires_in': 0 }
@@ -78,7 +85,7 @@ def refreshToken():
     return createResponse(json)
 
 # Checks to see if token is valid and gets a new token if not
-def get_token(session):
+def getValidToken(session):
     token_valid = False
     token_info = session.get("token_info", {})
 
