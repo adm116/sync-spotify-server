@@ -1,7 +1,8 @@
 from flask import Flask, render_template, redirect, request, session, make_response, jsonify
-from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE
+from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX
 import spotipy
 import time
+from queue import PriorityQueue
 
 app = Flask(__name__)
 app.secret_key = SSK
@@ -77,12 +78,192 @@ def getToken():
 
     session['token_info'], authorized = getValidToken(session)
     session.modified = True
+
     if not authorized:
         json = { 'success': False, 'token': '', 'expires_in': 0 }
     else:
         json = { 'success': True, 'token': session['token_info']['access_token'], 'expires_in': session['token_info']['expires_in'] }
 
     return createResponse(json)
+
+@app.route("/generatePlaylist", methods=['POST', 'OPTIONS'])
+def generatePlaylist():
+    if request.method == "OPTIONS":
+        return preflightResponse()
+
+    data = request.json
+    trackIds = data['trackIds'].split(',')
+    print('input', trackIds)
+        
+    session['token_info'], authorized = getValidToken(session)
+    session.modified = True
+
+    if not authorized:
+        json = { 'success': False }
+
+    else:
+        token = session.get('token_info').get('access_token')
+        sp = spotipy.Spotify(auth=token)
+        username = sp.current_user()['id']
+        recommendedTrackIds = getRecommendedSongs(trackIds, sp)
+        createPlaylist(sp, recommendedTrackIds, username)
+        print('output', recommendedTrackIds)
+        json = { 'success': True }
+    
+    return createResponse(json)
+
+def createPlaylist(sp, trackIds, username):
+    newPlaylistId  = sp.user_playlist_create(
+        user=username, name='test4', public=False)['id']
+
+    if len(trackIds) > 0:
+        sp.user_playlist_add_tracks(
+            user=username,
+            playlist_id=newPlaylistId,
+            tracks=rankByBPM(trackIds, sp)
+        )
+
+def getTrackFeatures(tracks, sp):
+    features = []
+
+    for offset in range(0, len(tracks), FEATURES_REQUEST_MAX):
+        songFeaturesToRequest = []
+
+        # divide into FEATURES_REQUEST_MAX size chunks
+        for track in tracks[offset:offset + FEATURES_REQUEST_MAX]:
+            songFeaturesToRequest.append(track['id'])
+
+        features += sp.audio_features(
+            tracks=songFeaturesToRequest)
+
+    return features
+
+def getFeatureArguments(features):
+    acousticness = []
+    danceability = []
+    energy = []
+    instrumentalness = []
+    liveness = []
+    loudness = []
+    speechiness = []
+    tempo = []
+    valence = []
+
+    for feature in features:
+        acousticness.append(feature['acousticness'])
+        danceability.append(feature['danceability'])
+        energy.append(feature['energy'])
+        instrumentalness.append(feature['instrumentalness'])
+        liveness.append(feature['liveness'])
+        loudness.append(feature['loudness'])
+        speechiness.append(feature['speechiness'])
+        tempo.append(feature['tempo'])
+        valence.append(feature['valence'])
+
+    return {
+        'min_acousticness' : min(acousticness),
+        'max_acousticness' : max(acousticness),
+        'target_acousticness' : sum(acousticness) / len(acousticness),
+        'min_danceability' : min(danceability),
+        'max_danceability' : max(danceability),
+        'target_danceability' : sum(danceability) / len(danceability),
+        'min_energy' : min(energy),
+        'max_energy' : max(energy),
+        'target_energy' : sum(energy) / len(energy),
+        'min_instrumentalness' : min(instrumentalness),
+        'max_instrumentalness' : max(instrumentalness),
+        'target_instrumentalness' : sum(instrumentalness) / len(instrumentalness),
+        'min_liveness' : min(liveness),
+        'max_liveness' : max(liveness),
+        'target_liveness' : sum(liveness) / len(liveness),
+        'min_loudness' : min(loudness),
+        'max_loudness' : max(loudness),
+        'target_loudness' : sum(loudness) / len(loudness),
+        'min_speechiness' : min(speechiness),
+        'max_speechiness' : max(speechiness),
+        'target_speechiness' : sum(speechiness) / len(speechiness),
+        'min_tempo' : min(tempo),
+        'max_tempo' : max(tempo),
+        'target_tempo' : sum(tempo) / len(tempo),
+        'min_valence' : min(valence),
+        'max_valence' : max(valence),
+        'target_valence' : sum(valence) / len(valence),
+    }
+
+def rankByBPM(trackIds, sp):
+    tracks = sp.tracks(trackIds)['tracks']
+    features = getTrackFeatures(tracks, sp)
+
+    sortedByBPM = PriorityQueue()
+    for feature in features:
+        trackId = feature['id']
+        bpm = feature['tempo']
+        sortedByBPM.put((bpm, trackId))
+
+    results = []
+    while not sortedByBPM.empty():
+        tuplePair = sortedByBPM.get()
+        print(tuplePair)
+        results.append(tuplePair[1])
+
+    return results
+
+def getRecommendedSongs(trackIds, sp):
+    tracks = sp.tracks(trackIds)['tracks']
+    features = getTrackFeatures(tracks, sp)
+    featureArguments = getFeatureArguments(features)
+
+    useExtra = False
+    if useExtra:
+        recommendedTracks = sp.recommendations(
+            None,
+            None,
+            seed_tracks=trackIds,
+            limit=50,
+            country=None,
+            min_acousticness=featureArguments['min_acousticness'],
+            max_acousticness=featureArguments['max_acousticness'],
+            target_acousticness=featureArguments['target_acousticness'],
+            min_danceability=featureArguments['min_danceability'],
+            max_danceability=featureArguments['max_danceability'],
+            target_danceability=featureArguments['target_danceability'],
+            min_energy=featureArguments['min_energy'],
+            max_energy=featureArguments['max_energy'],
+            target_energy=featureArguments['target_energy'],
+            min_instrumentalness=featureArguments['min_instrumentalness'],
+            max_instrumentalness=featureArguments['max_instrumentalness'],
+            target_instrumentalness=featureArguments['target_instrumentalness'],
+            min_liveness=featureArguments['min_liveness'],
+            max_liveness=featureArguments['max_liveness'],
+            target_liveness=featureArguments['target_liveness'],
+            min_loudness=featureArguments['min_loudness'],
+            max_loudness=featureArguments['max_loudness'],
+            target_loudness=featureArguments['target_loudness'],
+            min_speechiness=featureArguments['min_speechiness'],
+            max_speechiness=featureArguments['max_speechiness'],
+            target_speechiness=featureArguments['target_speechiness'],
+            min_tempo=featureArguments['min_tempo'],
+            max_tempo=featureArguments['max_tempo'],
+            target_tempo=featureArguments['target_tempo'],
+            min_valence=featureArguments['min_valence'],
+            max_valence=featureArguments['max_valence'],
+            target_valence=featureArguments['target_valence']
+        )
+    
+    else:
+        recommendedTracks = sp.recommendations(
+            None,
+            None,
+            seed_tracks=trackIds,
+            limit=50,
+            country=None
+        )
+
+    recommendedTrackIds = [recommendedTrack['id'] for recommendedTrack in recommendedTracks['tracks']]
+    return recommendedTrackIds
+
+
+
 
 # Checks to see if token is valid and gets a new token if not
 def getValidToken(session):
