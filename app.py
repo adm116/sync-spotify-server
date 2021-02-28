@@ -1,5 +1,5 @@
 from flask import Flask, render_template, redirect, request, session, make_response, jsonify
-from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX
+from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX, USE_FEATURES
 import spotipy
 import time
 from queue import PriorityQueue
@@ -93,6 +93,7 @@ def generatePlaylist():
 
     data = request.json
     trackIds = data['trackIds'].split(',')
+    playlistName = data['playlistName']
     print('input', trackIds)
         
     session['token_info'], authorized = getValidToken(session)
@@ -106,15 +107,15 @@ def generatePlaylist():
         sp = spotipy.Spotify(auth=token)
         username = sp.current_user()['id']
         recommendedTrackIds = getRecommendedSongs(trackIds, sp)
-        createPlaylist(sp, recommendedTrackIds, username)
+        createPlaylist(sp, recommendedTrackIds, username, playlistName)
         print('output', recommendedTrackIds)
         json = { 'success': True }
     
     return createResponse(json)
 
-def createPlaylist(sp, trackIds, username):
+def createPlaylist(sp, trackIds, username, playlistName):
     newPlaylistId  = sp.user_playlist_create(
-        user=username, name='test4', public=False)['id']
+        user=username, name=playlistName, public=False)['id']
 
     if len(trackIds) > 0:
         sp.user_playlist_add_tracks(
@@ -213,8 +214,7 @@ def getRecommendedSongs(trackIds, sp):
     features = getTrackFeatures(tracks, sp)
     featureArguments = getFeatureArguments(features)
 
-    useExtra = False
-    if useExtra:
+    if USE_FEATURES:
         recommendedTracks = sp.recommendations(
             None,
             None,
@@ -230,18 +230,18 @@ def getRecommendedSongs(trackIds, sp):
             min_energy=featureArguments['min_energy'],
             max_energy=featureArguments['max_energy'],
             target_energy=featureArguments['target_energy'],
-            min_instrumentalness=featureArguments['min_instrumentalness'],
-            max_instrumentalness=featureArguments['max_instrumentalness'],
-            target_instrumentalness=featureArguments['target_instrumentalness'],
-            min_liveness=featureArguments['min_liveness'],
-            max_liveness=featureArguments['max_liveness'],
-            target_liveness=featureArguments['target_liveness'],
-            min_loudness=featureArguments['min_loudness'],
-            max_loudness=featureArguments['max_loudness'],
-            target_loudness=featureArguments['target_loudness'],
-            min_speechiness=featureArguments['min_speechiness'],
-            max_speechiness=featureArguments['max_speechiness'],
-            target_speechiness=featureArguments['target_speechiness'],
+            # min_instrumentalness=featureArguments['min_instrumentalness'],
+            # max_instrumentalness=featureArguments['max_instrumentalness'],
+            # target_instrumentalness=featureArguments['target_instrumentalness'],
+            # min_liveness=featureArguments['min_liveness'],
+            # max_liveness=featureArguments['max_liveness'],
+            # target_liveness=featureArguments['target_liveness'],
+            # min_loudness=featureArguments['min_loudness'],
+            # max_loudness=featureArguments['max_loudness'],
+            # target_loudness=featureArguments['target_loudness'],
+            # min_speechiness=featureArguments['min_speechiness'],
+            # max_speechiness=featureArguments['max_speechiness'],
+            # target_speechiness=featureArguments['target_speechiness'],
             min_tempo=featureArguments['min_tempo'],
             max_tempo=featureArguments['max_tempo'],
             target_tempo=featureArguments['target_tempo'],

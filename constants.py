@@ -14,3 +14,4 @@ SSK = os.environ['SSK']
 
 # limits
 FEATURES_REQUEST_MAX = 50
+USE_FEATURES = bool(os.environ['USE_FEATURES'])
