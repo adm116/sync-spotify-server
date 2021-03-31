@@ -1,5 +1,5 @@
 from flask import Flask, render_template, redirect, request, session, make_response, jsonify
-from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX, USE_FEATURES, RECOMMENDATION_TRACKS_INPUT, MAX_TRACKS_IN_PLAYLIST
+from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX, USE_FEATURES, TRACK_SEED, ARTIST_SEED, MAX_TRACKS_IN_PLAYLIST
 import spotipy
 import time
 import random
@@ -106,8 +106,8 @@ def generatePlaylist():
         token = session.get('token_info').get('access_token')
         sp = spotipy.Spotify(auth=token)
         username = sp.current_user()['id']
-        trackIds = getTracksFromPlaylist(playlistId, sp)
-        recommendedTrackIds = [trackId for trackId in getRecommendedSongs(trackIds, sp) if trackId not in trackIds]
+        trackIds, artistIds = getSeedsFromPlaylist(playlistId, sp)
+        recommendedTrackIds = [trackId for trackId in getRecommendedSongs(trackIds, artistIds, sp) if trackId not in trackIds]
         addToPlaylist(sp, recommendedTrackIds, username, playlistId)
         print('output', recommendedTrackIds)
         json = { 'success': True }
@@ -207,24 +207,25 @@ def rankByBPM(trackIds, sp):
 
     return results
 
-def getTracksFromPlaylist(playlistId, sp):
-    # todo: current limit it set to 100 by default, should be enough since limiting final playlist to 50 tracks
-    tracks = sp.playlist_tracks(playlistId)['items']
-    return [track['track']['id'] for track in tracks]
+def getSeedsFromPlaylist(playlistId, sp):
+    items = sp.playlist_tracks(playlistId)['items']
+    trackIds = [item['track']['id'] for item in items]
+    artistIds = [item['track']['artists'][0]['id'] for item in items]
+    return trackIds, artistIds
 
-def getRecommendedSongs(trackIds, sp):
+def getRecommendedSongs(trackIds, artistIds, sp):
     if trackIds == 0:
         return []
 
     tracks = sp.tracks(trackIds)['tracks']
     features = getTrackFeatures(tracks, sp)
     featureArguments = getFeatureArguments(features)
+    print(artistIds)
 
     if USE_FEATURES:
         recommendedTracks = sp.recommendations(
-            None,
-            None,
-            seed_tracks=random.sample(trackIds, min(len(trackIds), RECOMMENDATION_TRACKS_INPUT)),
+            seed_artists=random.sample(artistIds, min(len(artistIds), ARTIST_SEED)),
+            seed_tracks=random.sample(trackIds, min(len(trackIds), TRACK_SEED)),
             limit=100,
             country=None,
             min_acousticness=featureArguments['min_acousticness'],
