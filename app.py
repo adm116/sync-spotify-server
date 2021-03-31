@@ -1,7 +1,8 @@
 from flask import Flask, render_template, redirect, request, session, make_response, jsonify
-from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX, USE_FEATURES
+from constants import SSK, SPOTIFY_REDIRECT_URL, SPOTIFY_CLIENT_SECRET, SPOTIFY_CLIENT_ID, PORT, SCOPE, FEATURES_REQUEST_MAX, USE_FEATURES, RECOMMENDATION_TRACKS_INPUT, MAX_TRACKS_IN_PLAYLIST
 import spotipy
 import time
+import random
 from queue import PriorityQueue
 
 app = Flask(__name__)
@@ -92,9 +93,8 @@ def generatePlaylist():
         return preflightResponse()
 
     data = request.json
-    trackIds = data['trackIds'].split(',')
-    playlistName = data['playlistName']
-    print('input', trackIds)
+    playlistId = data['playlistId']
+    print('input: ', playlistId)
         
     session['token_info'], authorized = getValidToken(session)
     session.modified = True
@@ -106,21 +106,19 @@ def generatePlaylist():
         token = session.get('token_info').get('access_token')
         sp = spotipy.Spotify(auth=token)
         username = sp.current_user()['id']
-        recommendedTrackIds = getRecommendedSongs(trackIds, sp)
-        createPlaylist(sp, recommendedTrackIds, username, playlistName)
+        trackIds = getTracksFromPlaylist(playlistId, sp)
+        recommendedTrackIds = [trackId for trackId in getRecommendedSongs(trackIds, sp) if trackId not in trackIds]
+        addToPlaylist(sp, recommendedTrackIds, username, playlistId)
         print('output', recommendedTrackIds)
         json = { 'success': True }
     
     return createResponse(json)
 
-def createPlaylist(sp, trackIds, username, playlistName):
-    newPlaylistId  = sp.user_playlist_create(
-        user=username, name=playlistName, public=False)['id']
-
+def addToPlaylist(sp, trackIds, username, playlistId):
     if len(trackIds) > 0:
         sp.user_playlist_add_tracks(
             user=username,
-            playlist_id=newPlaylistId,
+            playlist_id=playlistId,
             tracks=rankByBPM(trackIds, sp)
         )
 
@@ -209,7 +207,15 @@ def rankByBPM(trackIds, sp):
 
     return results
 
+def getTracksFromPlaylist(playlistId, sp):
+    # todo: current limit it set to 100 by default, should be enough since limiting final playlist to 50 tracks
+    tracks = sp.playlist_tracks(playlistId)['items']
+    return [track['track']['id'] for track in tracks]
+
 def getRecommendedSongs(trackIds, sp):
+    if trackIds == 0:
+        return []
+
     tracks = sp.tracks(trackIds)['tracks']
     features = getTrackFeatures(tracks, sp)
     featureArguments = getFeatureArguments(features)
@@ -218,8 +224,8 @@ def getRecommendedSongs(trackIds, sp):
         recommendedTracks = sp.recommendations(
             None,
             None,
-            seed_tracks=trackIds,
-            limit=50,
+            seed_tracks=random.sample(trackIds, min(len(trackIds), RECOMMENDATION_TRACKS_INPUT)),
+            limit=100,
             country=None,
             min_acousticness=featureArguments['min_acousticness'],
             max_acousticness=featureArguments['max_acousticness'],
@@ -255,11 +261,17 @@ def getRecommendedSongs(trackIds, sp):
             None,
             None,
             seed_tracks=trackIds,
-            limit=50,
+            limit=100,
             country=None
         )
 
     recommendedTrackIds = [recommendedTrack['id'] for recommendedTrack in recommendedTracks['tracks']]
+
+    # filter out tracks already in the playlist and limit entire playlist to 50 tracks
+    recommendedTrackIds = [trackId for trackId in recommendedTrackIds if trackId not in trackIds]
+    tracksToAdd = MAX_TRACKS_IN_PLAYLIST - len(trackIds)
+    if len(recommendedTrackIds) >= tracksToAdd:
+        return recommendedTrackIds[0: tracksToAdd]
     return recommendedTrackIds
 
 

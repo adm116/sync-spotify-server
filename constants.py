@@ -14,4 +14,6 @@ SSK = os.environ['SSK']
 
 # limits
 FEATURES_REQUEST_MAX = 50
-USE_FEATURES = bool(os.environ['USE_FEATURES'])
+USE_FEATURES = os.environ['USE_FEATURES'].lower() == 'true'
+RECOMMENDATION_TRACKS_INPUT = 5
+MAX_TRACKS_IN_PLAYLIST = 50
